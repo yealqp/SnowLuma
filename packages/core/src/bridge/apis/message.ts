@@ -118,7 +118,7 @@ export class MessageApi {
 
     if (isFriend) {
       routingHead.c2c = {
-        uin: userUin,
+        uin: BigInt(userUin),
         ...(userUid ? { uid: userUid } : {}),
       };
     } else {
@@ -133,7 +133,7 @@ export class MessageApi {
         }
       }
       if (groupId) {
-        routingHead.grpTmp = { groupUin: groupId, toUin: userUin };
+        routingHead.grpTmp = { groupUin: BigInt(groupId), toUin: BigInt(userUin) };
       } else {
         // No group found — fall back to friend C2C (will fail with
         // result=16 for non-friends, but better than misrouting).

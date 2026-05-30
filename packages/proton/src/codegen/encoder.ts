@@ -61,8 +61,8 @@ function isFixed64BigInt(typeName: string): boolean {
 }
 
 function bigintVarintExpr(typeName: string, expr: string): string {
-  if (typeName === 'uint_64') return `BigInt.asUintN(64, ${expr})`;
-  if (typeName === 'int_64') return `BigInt.asUintN(64, ${expr})`;
+  if (typeName === 'uint_64') return `BigInt.asUintN(64, BigInt(${expr}))`;
+  if (typeName === 'int_64') return `BigInt.asUintN(64, BigInt(${expr}))`;
   return `__zigZagEncode64(${expr})`;
 }
 
