@@ -118,7 +118,7 @@ export class MessageApi {
 
     if (isFriend) {
       routingHead.c2c = {
-        uin: BigInt(userUin),
+        uin: userUin,
         ...(userUid ? { uid: userUid } : {}),
       };
     } else {
