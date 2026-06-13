@@ -49,11 +49,27 @@ export const actions = [
       auto_escape: f.bool().default(false),
     },
     run: async (p, ctx) => {
-      if (p.message_type === 'group' || p.group_id !== undefined) {
+      // ★ Explicit message_type takes precedence; group_id alone only
+      // drives routing when message_type is absent (backward compat).
+      if (p.message_type === 'group') {
         if (p.group_id === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
         const result = await ctx.sendGroupMessage(p.group_id, p.message, p.auto_escape);
         return okResponse({ message_id: result.messageId });
       }
+
+      // ★ Private message with optional group_id for temporary session.
+      if (p.message_type === 'private') {
+        if (p.user_id === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
+        const result = await ctx.sendPrivateMessage(p.user_id, p.message, p.auto_escape, p.group_id);
+        return okResponse({ message_id: result.messageId });
+      }
+
+      // No message_type: infer from group_id (legacy OneBot behaviour).
+      if (p.group_id !== undefined) {
+        const result = await ctx.sendGroupMessage(p.group_id, p.message, p.auto_escape);
+        return okResponse({ message_id: result.messageId });
+      }
+
       if (p.user_id === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
       const result = await ctx.sendPrivateMessage(p.user_id, p.message, p.auto_escape);
       return okResponse({ message_id: result.messageId });
