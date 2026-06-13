@@ -5,8 +5,11 @@
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase, OidbEmpty } from '@snowluma/proto-defs/oidb';
-import type { OidbMuteAll } from '@snowluma/proto-defs/oidb-actions/base';
+import type { OidbMuteAll, OidbMuteAllState } from '@snowluma/proto-defs/oidb-actions/base';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
+
+// Force proton analyzer to register OidbMuteAllState in the type graph
+type __forceOidbMuteAllState = OidbMuteAllState;
 
 export namespace MuteAll {
   export const command = 0x89A;

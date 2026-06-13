@@ -36,10 +36,7 @@ async function main() {
 
   oneBotManager.bind(bridgeManager);
 
-  if (
-    (typeof __BUILD_WEBUI__ !== 'undefined' && __BUILD_WEBUI__) ||
-    process.env.SNOWLUMA_DEV_WEBUI === '1'
-  ) {
+  if (process.env.SNOWLUMA_DISABLE_WEBUI !== '1') {
     try {
       const { initWebUI } = await import('./webui/server');
       await initWebUI(runtimeConfig.webuiPort || 5099, oneBotManager, hookManager);

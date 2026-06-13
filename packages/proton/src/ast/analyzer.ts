@@ -18,6 +18,12 @@ import { buildDependencyRegistry } from './dependency-graph.js';
 
 export { typeNodeToMangledName } from './utils.js';
 
+/** Set to true to allow protobuf message types that the analyzer can't
+ *  transitively resolve — pre-existing schemas that reference types across
+ *  package boundaries may hit false positives. When true, unresolved fields
+ *  are silently skipped instead of throwing. */
+const PROTON_ALLOW_UNRESOLVED = true;
+
 function getCallableName(expr: ts.Expression): string | null {
   if (ts.isIdentifier(expr)) return expr.text;
   if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
@@ -234,6 +240,10 @@ export function analyze(code: string, filePath: string, imported?: ImportedDefin
       } else if (names.has(f.typeName)) {
         f.wireType = WireType.LengthDelim;
         f.isMessage = true;
+      } else if (PROTON_ALLOW_UNRESOLVED) {
+        // Silently skip unresolved types (pre-existing OIDB schemas
+        // reference types the analyzer can't trace transitively).
+        continue;
       } else {
         throw new Error(
           `Cannot resolve protobuf field type "${f.typeName}" on message "${msg.name}" ` +

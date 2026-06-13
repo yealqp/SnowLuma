@@ -55,6 +55,42 @@ export const actions = [
         if (p.group_id === undefined) return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
         const result = await ctx.sendGroupMessage(p.group_id, p.message, p.auto_escape);
         return okResponse({ message_id: result.messageId });
+export function register(h: ApiHandler, ctx: ApiActionContext): void {
+  h.registerAction('send_msg', async (params) => {
+    const messageType = asString(params.message_type);
+    const message = asMessage(params.message);
+    const autoEscape = asBoolean(params.auto_escape, false);
+
+    if (message === undefined) {
+      return failedResponse(RETCODE.BAD_REQUEST, 'message is required');
+    }
+
+    // ★ Explicit message_type takes precedence; group_id alone only
+    // drives routing when message_type is absent (backward compat).
+    if (messageType === 'group') {
+      const groupId = asNumber(params.group_id);
+      if (!Number.isInteger(groupId) || groupId <= 0) {
+        return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
+      }
+      const result = await ctx.sendGroupMessage(groupId, message, autoEscape);
+      return okResponse({ message_id: result.messageId });
+    }
+
+    if (messageType === 'private') {
+      const userId = asNumber(params.user_id);
+      if (!Number.isInteger(userId) || userId <= 0) {
+        return failedResponse(RETCODE.BAD_REQUEST, 'user_id is required');
+      }
+      const groupId = asNumber(params.group_id);
+      const result = await ctx.sendPrivateMessage(userId, message, autoEscape, groupId);
+      return okResponse({ message_id: result.messageId });
+    }
+
+    // No message_type: infer from group_id (legacy OneBot behaviour).
+    if (params.group_id !== undefined) {
+      const groupId = asNumber(params.group_id);
+      if (!Number.isInteger(groupId) || groupId <= 0) {
+        return failedResponse(RETCODE.BAD_REQUEST, 'group_id is required');
       }
 
       // ★ Private message with optional group_id for temporary session.
