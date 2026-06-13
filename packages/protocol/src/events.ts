@@ -153,7 +153,12 @@ export interface GroupMemberLeave extends QQEvent {
   operatorUin: number;
   userUid?: string;
   operatorUid?: string;
-  isKick: boolean;
+  /**
+   * Protocol-level reason the member left, derived from
+   * GroupChange.decreaseType. `kick` is split into kick / kick_me
+   * downstream (OneBot converter) by comparing against selfId.
+   */
+  leaveType: 'leave' | 'kick' | 'disband';
 }
 
 export interface GroupMuteEvent extends QQEvent {
@@ -263,6 +268,18 @@ export interface GroupMsgEmojiLikeEvent extends QQEvent {
   isAdd: boolean;
 }
 
+/**
+ * Async voice-to-text result, pushed by the server (Event 0x210 subType 61)
+ * after a `pttTrans.Trans{C2C,Group}PttReq`. `msgId` echoes the request's
+ * msgId — the correlation key a pending `fetch_ptt_text` waits on. Internal
+ * (not surfaced to OneBot clients).
+ */
+export interface PttTransResultEvent extends QQEvent {
+  kind: 'ptt_trans_result';
+  msgId: number;
+  text: string;
+}
+
 export type QQEventVariant =
   | FriendMessage
   | GroupMessage
@@ -280,4 +297,5 @@ export type QQEventVariant =
   | GroupEssenceEvent
   | GroupFileUploadEvent
   | FriendAddEvent
-  | GroupMsgEmojiLikeEvent;
+  | GroupMsgEmojiLikeEvent
+  | PttTransResultEvent;

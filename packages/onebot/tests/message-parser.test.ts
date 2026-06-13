@@ -413,6 +413,33 @@ describe('parseMessage', () => {
       const parsed = JSON.parse(result[0].text!);
       expect(parsed.meta.contact.type).toBe('group');
     });
+
+    it('parses signed music cards and buildSendElems preserves non-ASCII JSON', async () => {
+      const card = JSON.stringify({
+        app: 'com.tencent.structmsg',
+        view: 'music',
+        prompt: '[音乐]风中有朵雨做的云',
+        meta: { music: { title: '风中有朵雨做的云', desc: '孟庭苇' } },
+      });
+      vi.stubGlobal('fetch', vi.fn(async () => ({
+        ok: true,
+        text: async () => card,
+      })));
+
+      try {
+        const result = await parseMessage(
+          [{ type: 'music', data: { type: '163', id: '123456' } }] as any,
+          false,
+        );
+        expect(result).toEqual([{ type: 'json', text: card }]);
+
+        const protoElems = await buildSendElems(result);
+        expect(protoElems).toHaveLength(1);
+        expect(protoElems[0].lightApp?.data?.[0]).toBe(0x01);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
   });
 
   describe('single segment object', () => {
@@ -454,14 +481,20 @@ describe('parseMessage', () => {
       ]);
     });
 
-    it('drops a file segment with no file_id (upload-first contract)', async () => {
-      // Path-only segments aren't supported here — callers must
-      // upload via `upload_group_file` / `upload_private_file` first
-      // to obtain a file_id. Dropping with a warning is preferable
-      // to silently kicking off an upload from inside the message
-      // parser, which can't fail loudly without changing call sites.
+    it('parses {type:"file", file:"/path"} (no file_id) into a file element with url', async () => {
+      // Inline file path: the parser now accepts file/url/path and stores
+      // it in `url`. The send layer (sendGroupMessage / sendPrivateMessage)
+      // handles the actual upload so the parser stays side-effect-free.
       const result = await parseMessage(
         [{ type: 'file', data: { file: '/local/path/a.bin' } } as any],
+        false,
+      );
+      expect(result).toEqual([{ type: 'file', url: '/local/path/a.bin' }]);
+    });
+
+    it('drops a file segment with neither file_id nor file/url', async () => {
+      const result = await parseMessage(
+        [{ type: 'file', data: {} } as any],
         false,
       );
       expect(result).toEqual([]);
