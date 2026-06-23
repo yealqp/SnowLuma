@@ -7,6 +7,9 @@ import type {
   MessageIdResolver,
 } from './index';
 import { resolveReplyId } from './utils';
+import { createLogger } from '@snowluma/common/logger';
+
+const log = createLogger('OneBot');
 
 export async function elementsToJson(
   elements: MessageElement[],
@@ -19,10 +22,17 @@ export async function elementsToJson(
 ): Promise<JsonArray> {
   const result: JsonArray = [];
   for (const element of elements) {
-    result.push(await elementToSegment(
-      element, isGroup, sessionId,
-      imageUrlResolver, mediaUrlResolver, messageIdResolver, mediaSegmentSink,
-    ));
+    // One malformed element shouldn't drop the whole message — skip it (with a
+    // breadcrumb) and keep converting the rest.
+    try {
+      result.push(await elementToSegment(
+        element, isGroup, sessionId,
+        imageUrlResolver, mediaUrlResolver, messageIdResolver, mediaSegmentSink,
+      ));
+    } catch (err) {
+      log.warn('segment convert skipped type=%s (%s)', element.type,
+        err instanceof Error ? err.message : String(err));
+    }
   }
   return result;
 }
@@ -127,12 +137,27 @@ async function elementToSegment(
   }
 
   if (element.type === 'mface') {
+    // Unify market faces (商城表情) to an `image` segment so OneBot clients
+    // that don't special-case `mface` still render the sticker, while the
+    // `emoji_id`/`emoji_package_id`/`key` markers let aware clients (and our
+    // own send path) reproduce it as a real market face. Mirrors NapCat's
+    // marketFaceElement → image conversion. The gxh URL is a self-contained
+    // external link (no rkey), so we set it directly and skip mediaSegmentSink.
+    const emojiId = element.emojiId ?? '';
+    const dir = emojiId.slice(0, 2);
+    const url = emojiId
+      ? `https://gxh.vip.qq.com/club/item/parcel/item/${dir}/${emojiId}/raw300.gif`
+      : '';
     return {
-      type: 'mface',
+      type: 'image',
       data: {
-        name: element.text ?? '',
-        tab_id: element.faceId ?? 0,
-        sub_type: element.subType ?? 0,
+        file: emojiId ? `${dir}-${emojiId}.gif` : '',
+        url,
+        summary: element.text ?? '',
+        sub_type: 0,
+        emoji_id: emojiId,
+        emoji_package_id: element.emojiPackageId ?? 0,
+        key: element.emojiKey ?? '',
       },
     };
   }

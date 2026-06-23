@@ -2,7 +2,7 @@ import type {
   MarkdownData,
   MentionExtraSend,
 } from '@snowluma/proto-defs/action';
-import type { Elem, GroupFileExtra } from '@snowluma/proto-defs/element';
+import type { Elem, GroupFileExtra, MarketFacePbReserve } from '@snowluma/proto-defs/element';
 import { protobuf_encode } from '@snowluma/proton';
 import { randomUUID } from 'crypto';
 import { deflateSync } from 'zlib';
@@ -105,6 +105,24 @@ function makeReplyElem(element: MessageElement): ProtoElem {
   return { srcMsg };
 }
 
+// The replied sender, encoded as a mention element placed right after srcMsg.
+// QQ NT's group reply wire shape expects this; without it a following
+// user-supplied @ is silently not honored by the server (issue #129).
+async function makeReplyMentionElem(ctx: SendContext, uin: number): Promise<ProtoElem | null> {
+  if (ctx.groupId === undefined || uin <= 0) return null;
+  const member = ctx.bridge.identity.findGroupMember(ctx.groupId, uin);
+  let uid = member?.uid ?? '';
+  if (!uid) uid = await ctx.bridge.identity.resolveUid(uin, ctx.groupId).catch(() => '');
+  if (!uid) return null;
+  const name = member?.card?.trim() || member?.nickname?.trim() || String(uin);
+  // uin=0 matches QQ NT's native reply auto-mention (the real uid lives in
+  // `uid`). It does not itself notify — the user's own @ does — and the receive
+  // side strips a type=2/uin=0 mention as structural (#127), so the bot's own
+  // replies don't surface a spurious @ either.
+  const extra = protobuf_encode<MentionExtraSend>({ type: 2, uin: 0, field5: 0, uid });
+  return { text: { str: `@${name} `, pbReserve: extra } };
+}
+
 function makeDeflatedPayload(content: string): Uint8Array {
   const deflated = deflateSync(Buffer.from(content, 'utf8'));
   const payload = new Uint8Array(deflated.length + 1);
@@ -146,6 +164,34 @@ function makeMarkdownElem(element: MessageElement): ProtoElem {
   };
 }
 
+
+/**
+ * Build a market-face (商城表情) wire element from the markers carried on the
+ * receive-side `image` segment (`emoji_id`/`emoji_package_id`/`key`/summary).
+ *
+ * The constants (`itemType=6`, `faceInfo=1`, `subType=3`, 300×300,
+ * `pbReserve.field8=1`) mirror NapCat's `PacketMsgMarkFaceElement.buildElement`
+ * (`dev/NapCatQQ/.../packet/message/element.ts:318-335`) — the QQ-NT server
+ * pairs them with the faceId/tabId/key to relay the sticker. `faceId` is the
+ * raw GUID bytes, recovered from the hex `emojiId`.
+ */
+function makeMarketFaceElem(element: MessageElement): ProtoElem {
+  const emojiId = (element.emojiId ?? '').trim();
+  return {
+    marketFace: {
+      faceName: element.text ?? '',
+      itemType: 6,
+      faceInfo: 1,
+      faceId: hexToBytes(emojiId),
+      tabId: element.emojiPackageId ?? 0,
+      subType: 3,
+      key: element.emojiKey ?? '',
+      imageWidth: 300,
+      imageHeight: 300,
+      pbReserve: protobuf_encode<MarketFacePbReserve>({ field8: 1 }),
+    },
+  };
+}
 
 function makeForwardElem(element: MessageElement): ProtoElem {
   const resId = (element.resId ?? '').trim();
@@ -345,11 +391,17 @@ async function makeVideoElem(ctx: SendContext, element: MessageElement): Promise
 
 /**
  * Build proto Elem objects from an array of MessageElements.
- * Supports: text, face, at, reply, json, xml, markdown, image, record, video, forward.
+ * Supports: text, face, mface, at, reply, json, xml, markdown, image, record, video, forward.
  * Image, record and video elements trigger NTV2 highway upload via the SendContext.
  */
 export async function buildSendElems(elements: MessageElement[], ctx?: SendContext): Promise<ProtoElem[]> {
   const result: ProtoElem[] = [];
+  // A user-supplied @ that lands immediately after a reply's srcMsg isn't
+  // honored by the QQ NT group server (the @ shows but never notifies, #129).
+  // When a reply and an @ coexist, emit the replied sender as a trailing
+  // mention right after srcMsg (mirrors Lagrange ForwardEntity.PackElement),
+  // which restores the wire shape the server expects.
+  const hasUserAt = elements.some((e) => e.type === 'at');
 
   for (const elem of elements) {
     switch (elem.type) {
@@ -361,12 +413,22 @@ export async function buildSendElems(elements: MessageElement[], ctx?: SendConte
         if (elem.faceId !== undefined) result.push(makeFaceElem(elem.faceId));
         break;
 
+      case 'mface':
+        if (elem.emojiId) result.push(makeMarketFaceElem(elem));
+        break;
+
       case 'at':
         result.push(makeMentionElem(elem, ctx));
         break;
 
       case 'reply':
-        if (elem.replySeq) result.push(makeReplyElem(elem));
+        if (elem.replySeq) {
+          result.push(makeReplyElem(elem));
+          if (hasUserAt && ctx?.groupId !== undefined && elem.replySenderUin) {
+            const replyMention = await makeReplyMentionElem(ctx, elem.replySenderUin);
+            if (replyMention) result.push(replyMention);
+          }
+        }
         break;
 
       case 'json':
