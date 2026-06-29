@@ -97,19 +97,32 @@ export interface OneBotNetworks {
   wsClients: WsClientNetwork[];
 }
 
-/** Built-in `#sl` status command settings (trigger word is hardcoded). */
+/** Built-in status command settings. Trigger word is configurable. */
 export interface StatusCommandConfig {
   enabled: boolean;
   swallow: boolean;
   cooldownSeconds: number;
+  trigger: string;
 }
 
 export interface OneBotConfig {
   networks: OneBotNetworks;
-  musicSignUrl?: string;
   statusCommand: StatusCommandConfig;
   /** Per-account opt-in to global notification channels (by channel id). */
   notifications?: { channelIds: string[] };
+}
+
+// ─── Global deployment settings (config/snowluma.json) ──────────────────────
+// All-accounts SnowLuma knobs that aren't per-UIN: rkey fallback servers and
+// the music-card signing endpoint. Mirrors @snowluma/onebot/global-config.
+export interface RKeyConfig {
+  fallbackServers: string[];
+}
+
+export interface GlobalSettings {
+  rkey: RKeyConfig;
+  /** Music-card signing service URL. Empty = built-in default. */
+  musicSignUrl: string;
 }
 
 // ─── Notifications (account up/down webhooks) ───────────────────────────────
