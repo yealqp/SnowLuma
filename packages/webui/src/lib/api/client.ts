@@ -1,4 +1,4 @@
-import type { AccountConnections, BackupBundle, BackupImportResult, DebugActionDoc, DebugInvokeResult, DebugStreamMessage, HookProcessInfo, LogEntry, LogLevel, NotificationDeliveryRecord, NotificationsConfig, QQInfo, SystemInfo, SystemSettingsPatch, SystemSettingsResponse, UiAppearance, UiConfig, UpdateInfo } from '@/types';
+import type { AccountConnections, BackupBundle, BackupImportResult, DebugActionDoc, DebugInvokeResult, DebugStreamMessage, GlobalSettings, HookProcessInfo, LogEntry, LogLevel, NotificationDeliveryRecord, NotificationsConfig, QQInfo, SystemInfo, SystemSettingsPatch, SystemSettingsResponse, UiAppearance, UiConfig, UpdateInfo } from '@/types';
 import type { PasswordRule } from '@/components/pages/change-password-page';
 import { normalizeOneBotConfig } from '@/lib/onebot-config';
 import {
@@ -10,6 +10,8 @@ import {
   type LoginResult,
   type LogsStreamOptions,
   type ProcessActionResult,
+  type StateStreamEvent,
+  type StateStreamOptions,
   type TokenStore,
 } from './types';
 import { localStorageTokenStore } from './token-store';
@@ -46,6 +48,7 @@ class HttpApiClient implements ApiClient {
   readonly update: ApiClient['update'];
   readonly ui: ApiClient['ui'];
   readonly notifications: ApiClient['notifications'];
+  readonly globalConfig: ApiClient['globalConfig'];
   readonly systemSettings: ApiClient['systemSettings'];
   readonly debug: ApiClient['debug'];
   readonly agreements: ApiClient['agreements'];
@@ -186,6 +189,18 @@ class HttpApiClient implements ApiClient {
         this.postJson<{ success: boolean; message?: string; status?: number }>('/api/notifications/test', {
           channelId,
         }),
+    };
+
+    this.globalConfig = {
+      get: () =>
+        this.getJson<{ config: GlobalSettings }>('/api/global-config').then((d) => d.config),
+      save: async (config) => {
+        const data = await this.postJson<{ success: boolean; config: GlobalSettings }>(
+          '/api/global-config',
+          config,
+        );
+        return data.config;
+      },
     };
 
     this.agreements = {
@@ -342,6 +357,26 @@ class HttpApiClient implements ApiClient {
 
   connections(): Promise<AccountConnections[]> {
     return this.getJson<{ list: AccountConnections[] }>('/api/connections').then((d) => d.list ?? []);
+  }
+
+  stateStream(options: StateStreamOptions): () => void {
+    if (!this.currentToken) { options.onStatus?.('closed'); return () => {}; }
+    const url = `/api/state/stream?token=${encodeURIComponent(this.currentToken)}`;
+    const source = new EventSource(url);
+    // EventSource auto-reconnects on transport drop: `onerror` fires once
+    // when the connection is lost and the browser is about to retry, so
+    // a single 'reconnecting' status is sufficient — no manual reconnect
+    // timer needed.
+    source.onopen = () => options.onStatus?.('open');
+    source.onerror = () => options.onStatus?.('reconnecting');
+    source.onmessage = (event) => {
+      try {
+        options.onEvent(JSON.parse(event.data) as StateStreamEvent);
+      } catch {
+        /* malformed frame — skip; the next one will arrive normally */
+      }
+    };
+    return () => { source.close(); options.onStatus?.('closed'); };
   }
 
   // ---------- SSE ----------
